@@ -1,6 +1,7 @@
 # LLMCUI
 
 LLMCUI is a lightweight session engine for Simon Willison’s `llm` command-line tool https://github.com/simonw/llm
+
 It provides persistent projects, structured multi-chat sessions, and automatic context management using an SQLite backend and a character-based interface (CUI).
 
 LLMCUI enhances the standard `llm` workflow by adding long-term memory, organized workspaces, project-level context, and reproducible chat histories—all while remaining terminal-native and automation-friendly.
