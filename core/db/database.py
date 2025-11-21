@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS debug_log (
   info TEXT,
   ts TEXT
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 """
 
 def init_db(db_path):
