@@ -19,7 +19,7 @@ DB_PATH = os.path.join(ROOT, "ai.db")
 
 def ensure_first_run_status_on(settings: SettingsService):
     """
-    If show_status has never been set (first run), default it to ON.
+    If show_status has never been set (first run), default to ON.
     """
     if settings.get("show_status") is None:
         settings.set("show_status", "true")
@@ -41,7 +41,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     # --------------------------------------------
-    # Special: toggle header and exit
+    # Toggle status header only
     # --------------------------------------------
     if args.toggle_status:
         init_db(DB_PATH)
@@ -51,6 +51,7 @@ def main(argv=None):
         print(f"Status header now {'ON' if new_val else 'OFF'}")
         return 0
 
+    # No prompt → help
     if not args.prompt:
         parser.print_usage()
         return 1
@@ -67,23 +68,20 @@ def main(argv=None):
     llm = LLMService()
     settings = SettingsService(db)
 
-    # Ensure first-run header ON
     ensure_first_run_status_on(settings)
 
     # --------------------------------------------
     # Resolve project + chat
     # --------------------------------------------
     project = args.project or project_svc.get_or_create_default()
-
-    # Capture before reset: needed to detect new chat
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
-    # Reset means: KEEP the chat but clear messages, not a "new chat"
+    # Reset chat
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
     # --------------------------------------------
-    # NEW CHAT TITLE LOGIC
+    # New-chat title generation
     # --------------------------------------------
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
@@ -106,18 +104,19 @@ def main(argv=None):
     prompt_parts.append(args.prompt)
 
     # --------------------------------------------
-    # File selection
+    # File selection mode
     # --------------------------------------------
     if args.filemode and args.selector:
         try:
-            selector = args.selector
-            if "-" in selector:
-                a, b = selector.split("-", 1)
+            sel = args.selector
+            if "-" in sel:
+                a, b = sel.split("-", 1)
                 files = range(int(a), int(b) + 1)
             else:
-                files = [int(x) for x in selector.split(",")]
+                files = [int(x) for x in sel.split(",")]
 
             cwd_files = [f for f in os.listdir(".") if os.path.isfile(f)]
+
             for idx in files:
                 if 0 <= idx < len(cwd_files):
                     fname = cwd_files[idx]
@@ -135,10 +134,16 @@ def main(argv=None):
     msg_svc.add_message(chat_id, "user", args.prompt)
 
     # --------------------------------------------
-    # Status banner
+    # Status banner (with readable chat title)
     # --------------------------------------------
     if settings.get_bool("show_status", False):
-        print(f"[project: {project} | chat: {chat_id}]")
+        conn = db.connect()
+        cur = conn.execute("SELECT title FROM chats WHERE id = ?", (chat_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        chat_title = row["title"] if row and row["title"] else "(untitled)"
+        print(f"[project: {project} | {chat_title}]")
         print()
 
     # --------------------------------------------
@@ -157,7 +162,7 @@ def main(argv=None):
     print(f"⏱️ Runtime (model call): {duration:.2f}s")
 
     # --------------------------------------------
-    # Persist assistant message
+    # Store assistant message
     # --------------------------------------------
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
@@ -166,13 +171,28 @@ def main(argv=None):
     # Background distillation
     # --------------------------------------------
     try:
-        distill_path = os.path.join(os.path.dirname(__file__), "..", "runners", "distill.py")
+        distill_path = os.path.join(
+            os.path.dirname(__file__), "..", "runners", "distill.py"
+        )
         subprocess.Popen(
-            ["python3", distill_path, "--db", DB_PATH, "--project", project, "--chat", chat_id],
+            [
+                "python3",
+                distill_path,
+                "--db",
+                DB_PATH,
+                "--project",
+                project,
+                "--chat",
+                chat_id,
+            ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         )
     except Exception:
         pass
 
     return 0
+
+
+if __name__ == "__main__":
+    main()
