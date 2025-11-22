@@ -18,9 +18,7 @@ DB_PATH = os.path.join(ROOT, "ai.db")
 
 
 def ensure_first_run_status_on(settings: SettingsService):
-    """
-    If show_status has never been set (first run), default to ON.
-    """
+    """If show_status has never been set (first run), default to ON."""
     if settings.get("show_status") is None:
         settings.set("show_status", "true")
 
@@ -40,9 +38,7 @@ def main(argv=None):
     parser.add_argument("selector", nargs="?", help="file selector (e.g. 0,1 or 0-2)")
     args = parser.parse_args(argv)
 
-    # --------------------------------------------
-    # Toggle status header only
-    # --------------------------------------------
+    # Toggle header flag
     if args.toggle_status:
         init_db(DB_PATH)
         db = Database(DB_PATH)
@@ -51,14 +47,11 @@ def main(argv=None):
         print(f"Status header now {'ON' if new_val else 'OFF'}")
         return 0
 
-    # No prompt → help
     if not args.prompt:
         parser.print_usage()
         return 1
 
-    # --------------------------------------------
-    # Initialize DB + services
-    # --------------------------------------------
+    # Init core services
     init_db(DB_PATH)
     db = Database(DB_PATH)
 
@@ -70,27 +63,21 @@ def main(argv=None):
 
     ensure_first_run_status_on(settings)
 
-    # --------------------------------------------
     # Resolve project + chat
-    # --------------------------------------------
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
-    # Reset chat
+    # Reset chat content but not metadata
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
-    # --------------------------------------------
-    # New-chat title generation
-    # --------------------------------------------
+    # New-chat → generate title
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
         if title:
             chat_svc.update_title(chat_id, title)
 
-    # --------------------------------------------
-    # Context summaries
-    # --------------------------------------------
+    # Summaries
     project_summary = project_svc.get_distilled_project(project)
     chat_summary = chat_svc.get_distilled_chat(chat_id)
 
@@ -100,12 +87,20 @@ def main(argv=None):
     if chat_summary:
         prompt_parts.append(f"[CHAT_CONTEXT]\n{chat_summary}\n")
 
+    # Main user message
     prompt_parts.append("### CURRENT_USER_MESSAGE")
     prompt_parts.append(args.prompt)
 
-    # --------------------------------------------
+    # BREVITY RULES (short by default, full for code)
+    prompt_parts.append("""
+### STYLE_GUIDE
+- Keep responses short, precise, and compact by default.
+- Expand fully only when producing code, configuration files, or command sequences.
+- When producing code, return the complete working code without omissions.
+- For non-code answers: avoid long paragraphs or repeated explanations.
+""")
+
     # File selection mode
-    # --------------------------------------------
     if args.filemode and args.selector:
         try:
             sel = args.selector
@@ -128,14 +123,10 @@ def main(argv=None):
 
     full_prompt = "\n\n".join(prompt_parts)
 
-    # --------------------------------------------
     # Save user message
-    # --------------------------------------------
     msg_svc.add_message(chat_id, "user", args.prompt)
 
-    # --------------------------------------------
-    # Status banner (with readable chat title)
-    # --------------------------------------------
+    # Status banner with readable chat title
     if settings.get_bool("show_status", False):
         conn = db.connect()
         cur = conn.execute("SELECT title FROM chats WHERE id = ?", (chat_id,))
@@ -146,9 +137,7 @@ def main(argv=None):
         print(f"[project: {project} | {chat_title}]")
         print()
 
-    # --------------------------------------------
     # LLM call
-    # --------------------------------------------
     start = time.time()
     response_text = llm.call_prompt(full_prompt)
     duration = time.time() - start
@@ -161,15 +150,11 @@ def main(argv=None):
     print()
     print(f"⏱️ Runtime (model call): {duration:.2f}s")
 
-    # --------------------------------------------
     # Store assistant message
-    # --------------------------------------------
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
 
-    # --------------------------------------------
-    # Background distillation
-    # --------------------------------------------
+    # Background distillation (async)
     try:
         distill_path = os.path.join(
             os.path.dirname(__file__), "..", "runners", "distill.py"
