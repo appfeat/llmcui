@@ -16,6 +16,7 @@ from cli.commands.prompt_builder import build_prompt
 from cli.commands.banner import show_status_banner
 from cli.interactive.menu import interactive_entry
 
+
 ROOT = os.path.expanduser("~/.llmcui")
 os.makedirs(ROOT, exist_ok=True)
 os.environ.setdefault("LLMCUI_ROOT", ROOT)
@@ -29,41 +30,37 @@ def ensure_first_run_status_on(settings: SettingsService):
         settings.set("show_status", "true")
 
 
+def running_under_pytest() -> bool:
+    """Detect pytest to avoid background Popen warnings."""
+    return "PYTEST_CURRENT_TEST" in os.environ
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="ai",
         description="llmcui MVP wrapper for llm"
     )
 
-    # ------------------------------------------------------------
     # NORMAL USER FLAGS
-    # ------------------------------------------------------------
     parser.add_argument("-p", "--project", help="project name")
     parser.add_argument("-c", "--chat", help="chat id")
     parser.add_argument("-r", "--reset", action="store_true", help="reset chat")
     parser.add_argument("-f", "--filemode", action="store_true", help="file mode")
-    parser.add_argument("--toggle-status", action="store_true",
-                        help="toggle banner")
+    parser.add_argument("--toggle-status", action="store_true", help="toggle banner")
 
-    # ------------------------------------------------------------
     # ADMIN FLAGS
-    # ------------------------------------------------------------
     parser.add_argument("--list-projects", action="store_true")
     parser.add_argument("--list-chats", action="store_true")
     parser.add_argument("--new-project")
     parser.add_argument("--new-chat", action="store_true")
 
-    # ------------------------------------------------------------
-    # MAIN PROMPT (optional)
-    # ------------------------------------------------------------
+    # FREE PROMPT
     parser.add_argument("prompt", nargs="?", help="prompt")
     parser.add_argument("selector", nargs="?", help="file selector")
 
     args = parser.parse_args(argv)
 
-    # ------------------------------------------------------------
-    # INITIALIZE DB + SERVICES
-    # ------------------------------------------------------------
+    # INIT SERVICES
     init_db(DB_PATH)
     db = Database(DB_PATH)
 
@@ -75,15 +72,11 @@ def main(argv=None):
 
     ensure_first_run_status_on(settings)
 
-    # ------------------------------------------------------------
     # ADMIN COMMANDS
-    # ------------------------------------------------------------
     if handle_admin_commands(args, db, project_svc, chat_svc):
         return 0
 
-    # ------------------------------------------------------------
     # INTERACTIVE MODE
-    # ------------------------------------------------------------
     if (
         not args.prompt
         and not args.list_projects
@@ -96,7 +89,6 @@ def main(argv=None):
             db, project_svc, chat_svc, msg_svc, llm, settings
         )
 
-        # If it's a dict → user selected project/chat + entered prompt
         if isinstance(inter, dict):
             args.project = inter["interactive_project"]
             args.chat = inter["interactive_chat"]
@@ -104,27 +96,25 @@ def main(argv=None):
         else:
             return inter
 
-    # ------------------------------------------------------------
-    # NORMAL MODE REQUIRES PROMPT
-    # ------------------------------------------------------------
+    # PROMPT REQUIRED
     if not args.prompt:
         parser.print_usage()
         return 1
 
-    # Resolve project & chat
+    # RESOLVE PROJECT + CHAT
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
-    # Generate title if new chat
+    # TITLE GENERATION FOR NEW CHAT
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
         if title:
             chat_svc.update_title(chat_id, title)
 
-    # Build final LLM prompt
+    # BUILD PROMPT
     full_prompt = build_prompt(
         args=args,
         db=db,
@@ -134,15 +124,13 @@ def main(argv=None):
         chat_svc=chat_svc
     )
 
-    # Save user message
+    # SAVE USER MESSAGE
     msg_svc.add_message(chat_id, "user", args.prompt)
 
-    # Show banner
+    # SHOW BANNER
     show_status_banner(settings, db, project, chat_id)
 
-    # ------------------------------------------------------------
     # LLM CALL
-    # ------------------------------------------------------------
     start = time.time()
     response_text = llm.call_prompt(full_prompt)
     duration = time.time() - start
@@ -155,29 +143,28 @@ def main(argv=None):
     print()
     print(f"⏱️ Runtime (model call): {duration:.2f}s")
 
-    # Save assistant response
+    # SAVE ASSISTANT MESSAGE
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
 
-    # ------------------------------------------------------------
-    # Background distillation
-    # ------------------------------------------------------------
-    try:
-        distill_path = os.path.join(
-            os.path.dirname(__file__), "..", "runners", "distill.py"
-        )
-        subprocess.Popen(
-            [
-                "python3", distill_path,
-                "--db", DB_PATH,
-                "--project", project,
-                "--chat", chat_id,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except Exception:
-        pass
+    # BACKGROUND DISTILLATION (DISABLED DURING TESTS)
+    if not running_under_pytest():
+        try:
+            distill_path = os.path.join(
+                os.path.dirname(__file__), "..", "runners", "distill.py"
+            )
+            subprocess.Popen(
+                [
+                    "python3", distill_path,
+                    "--db", DB_PATH,
+                    "--project", project,
+                    "--chat", chat_id,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
 
     return 0
 
