@@ -1,12 +1,5 @@
 import os
-
-from cli.interactive.menu import (
-    ask,
-    select_project,
-    select_chat,
-    show_chat_history,
-)
-from cli.commands.prompt_builder import build_prompt
+import cli.interactive.menu as M
 
 
 def post_response_menu(
@@ -21,13 +14,6 @@ def post_response_menu(
 ):
     """
     Menu shown AFTER an LLM response.
-
-    Options:
-      a → Ask another question (same chat)
-      f → Pipe a file + ask
-      c → Switch chat
-      p → Switch project & chat
-      x → Exit
     """
 
     while True:
@@ -38,7 +24,7 @@ def post_response_menu(
         print("  p → Switch project & chat")
         print("  x → Exit")
 
-        choice = ask("\nChoose: ").lower()
+        choice = M.ask("\nChoose: ").lower()
 
         # EXIT
         if choice == "x":
@@ -46,7 +32,7 @@ def post_response_menu(
 
         # ASK ANOTHER QUESTION
         if choice == "a":
-            prompt = ask("Your message: ")
+            prompt = M.ask("Your message: ")
             return rerun_llm(
                 current_project,
                 current_chat,
@@ -55,7 +41,7 @@ def post_response_menu(
 
         # PIPE A FILE + QUESTION
         if choice == "f":
-            path = ask("File path: ").strip()
+            path = M.ask("File path: ").strip()
             if not os.path.isfile(path):
                 print("Invalid file path.")
                 continue
@@ -63,7 +49,7 @@ def post_response_menu(
             with open(path, "r", errors="ignore") as fh:
                 content = fh.read()
 
-            question = ask("Your question about this file: ")
+            question = M.ask("Your question about this file: ")
             combined = f"### FILE: {path}\n{content}\n\n{question}"
 
             return rerun_llm(
@@ -74,10 +60,10 @@ def post_response_menu(
 
         # SWITCH CHAT
         if choice == "c":
-            chat = select_chat(db, chat_svc, current_project)
+            chat = M.select_chat(db, chat_svc, current_project)
             if chat:
-                show_chat_history(msg_svc, chat)
-                prompt = ask("Your message: ")
+                M.show_chat_history(msg_svc, chat)
+                prompt = M.ask("Your message: ")
                 return rerun_llm(
                     current_project,
                     chat,
@@ -87,12 +73,12 @@ def post_response_menu(
 
         # SWITCH PROJECT + CHAT
         if choice == "p":
-            proj = select_project(db, project_svc)
+            proj = M.select_project(db, project_svc)
             if proj:
-                chat = select_chat(db, chat_svc, proj)
+                chat = M.select_chat(db, chat_svc, proj)
                 if chat:
-                    show_chat_history(msg_svc, chat)
-                    prompt = ask("Your message: ")
+                    M.show_chat_history(msg_svc, chat)
+                    prompt = M.ask("Your message: ")
                     return rerun_llm(
                         proj,
                         chat,
@@ -105,8 +91,7 @@ def post_response_menu(
 
 def rerun_llm(project, chat_id, prompt):
     """
-    Returns a dict that main.py treats the same as interactive_entry().
-    This allows main.py to re-enter the LLM execution flow normally.
+    Returns a dict understood by main.py for re-running the LLM.
     """
     return {
         "interactive_project": project,

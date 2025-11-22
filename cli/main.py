@@ -89,7 +89,6 @@ def main(argv=None):
         inter = interactive_entry(
             db, project_svc, chat_svc, msg_svc, llm, settings
         )
-
         if isinstance(inter, dict):
             args.project = inter["interactive_project"]
             args.chat = inter["interactive_chat"]
@@ -171,7 +170,7 @@ def main(argv=None):
     if running_under_pytest():
         return 0
 
-    # POST-RESPONSE MENU LOOP
+    # PERSISTENT POST-RESPONSE MENU LOOP
     return post_response_menu(
         db, project_svc, chat_svc, msg_svc, llm, settings,
         current_project=project,
