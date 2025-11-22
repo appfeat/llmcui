@@ -19,7 +19,7 @@ def ask(prompt: str) -> str:
 
 
 # -----------------------------------------------------------
-# PROJECT SELECTION
+# PROJECT SELECTION (no auto-create)
 # -----------------------------------------------------------
 def select_project(db, project_svc: ProjectService) -> str:
     conn = db.connect()
@@ -29,10 +29,25 @@ def select_project(db, project_svc: ProjectService) -> str:
     conn.close()
 
     print("\n=== Projects ===")
-    if not rows:
-        print("No projects found. Creating default.")
-        return project_svc.get_or_create_default()
 
+    if not rows:
+        print("No projects found.")
+        print("n. Create new project")
+        print("x. Cancel")
+        while True:
+            sel = ask("\nSelect: ").lower()
+            if sel == "x":
+                return None
+            if sel == "n":
+                name = ask("New project name: ").strip()
+                if name:
+                    return project_svc.get_or_create(name)
+                print("Invalid name.")
+                continue
+            print("Invalid choice.")
+        # unreachable
+
+    # Projects exist → list them
     for i, r in enumerate(rows):
         print(f"{i}. {r['name']}   (created {r['created_at']})")
 
@@ -61,7 +76,7 @@ def select_project(db, project_svc: ProjectService) -> str:
 
 
 # -----------------------------------------------------------
-# CHAT SELECTION
+# CHAT SELECTION (no auto-create)
 # -----------------------------------------------------------
 def select_chat(db, chat_svc: ChatService, project: str) -> str:
     conn = db.connect()
@@ -80,8 +95,17 @@ def select_chat(db, chat_svc: ChatService, project: str) -> str:
     print(f"\n=== Chats in '{project}' ===")
 
     if not rows:
-        print("No chats found. Creating first chat.")
-        return chat_svc.force_new_chat(project)
+        print("No chats found.")
+        print("n. Create new chat")
+        print("x. Cancel")
+        while True:
+            sel = ask("\nSelect: ").lower()
+            if sel == "x":
+                return None
+            if sel == "n":
+                return chat_svc.force_new_chat(project)
+            print("Invalid choice.")
+        # unreachable
 
     for i, r in enumerate(rows):
         title = r["title"] or "(untitled)"
@@ -160,11 +184,10 @@ def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
             project = project_svc.get_or_create(name)
             chat_id = chat_svc.force_new_chat(project)
             prompt = ask("Enter prompt: ")
-
             return _return_interactive_choice(project, chat_id, prompt)
 
         # ----------------------------------------
-        # BROWSE PROJECTS
+        # BROWSE PROJECTS (NO AUTO CREATE)
         # ----------------------------------------
         if choice == "1":
             project = select_project(db, project_svc)
@@ -184,19 +207,17 @@ def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
 
             while True:
                 inner = ask("\nChoose: ").lower()
-
                 if inner == "x":
                     return 0
                 if inner == "p":
-                    break       # go back to main menu
+                    break
                 if inner == "c":
                     prompt = ask("Your message: ")
                     return _return_interactive_choice(project, chat, prompt)
-
                 print("Invalid choice.")
 
         # ----------------------------------------
-        # DEFAULT PROJECT
+        # USE DEFAULT PROJECT (allowed to auto-create)
         # ----------------------------------------
         if choice == "2":
             project = project_svc.get_or_create_default()
