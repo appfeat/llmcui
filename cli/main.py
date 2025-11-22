@@ -17,6 +17,14 @@ os.environ.setdefault("LLMCUI_ROOT", ROOT)
 DB_PATH = os.path.join(ROOT, "ai.db")
 
 
+def ensure_first_run_status_on(settings: SettingsService):
+    """
+    If show_status has never been set (first run), default it to ON.
+    """
+    if settings.get("show_status") is None:
+        settings.set("show_status", "true")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="ai",
@@ -33,44 +41,49 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     # --------------------------------------------
-    # Toggle status header
+    # Special: toggle header and exit
     # --------------------------------------------
     if args.toggle_status:
         init_db(DB_PATH)
         db = Database(DB_PATH)
         settings = SettingsService(db)
-        new_value = settings.toggle("show_status", default=False)
-        print(f"Status header now {'ON' if new_value else 'OFF'}")
+        new_val = settings.toggle("show_status", default=False)
+        print(f"Status header now {'ON' if new_val else 'OFF'}")
         return 0
 
-    # No prompt → help
     if not args.prompt:
         parser.print_usage()
         return 1
 
     # --------------------------------------------
-    # Initialize core services
+    # Initialize DB + services
     # --------------------------------------------
     init_db(DB_PATH)
     db = Database(DB_PATH)
+
     project_svc = ProjectService(db)
     chat_svc = ChatService(db)
     msg_svc = MessageService(db)
     llm = LLMService()
     settings = SettingsService(db)
 
+    # Ensure first-run header ON
+    ensure_first_run_status_on(settings)
+
     # --------------------------------------------
     # Resolve project + chat
     # --------------------------------------------
     project = args.project or project_svc.get_or_create_default()
+
+    # Capture before reset: needed to detect new chat
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
-    # Reset BEFORE checking whether chat is new
+    # Reset means: KEEP the chat but clear messages, not a "new chat"
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
     # --------------------------------------------
-    # NEW CHAT TITLE LOGIC (Step 4)
+    # NEW CHAT TITLE LOGIC
     # --------------------------------------------
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
@@ -93,20 +106,18 @@ def main(argv=None):
     prompt_parts.append(args.prompt)
 
     # --------------------------------------------
-    # File selection mode
+    # File selection
     # --------------------------------------------
     if args.filemode and args.selector:
         try:
-            sel = args.selector
-
-            if "-" in sel:
-                start_idx, end_idx = sel.split("-", 1)
-                files = list(range(int(start_idx), int(end_idx) + 1))
+            selector = args.selector
+            if "-" in selector:
+                a, b = selector.split("-", 1)
+                files = range(int(a), int(b) + 1)
             else:
-                files = [int(x) for x in sel.split(",")]
+                files = [int(x) for x in selector.split(",")]
 
             cwd_files = [f for f in os.listdir(".") if os.path.isfile(f)]
-
             for idx in files:
                 if 0 <= idx < len(cwd_files):
                     fname = cwd_files[idx]
