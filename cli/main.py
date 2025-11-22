@@ -3,6 +3,7 @@ import argparse
 import os
 import subprocess
 import time
+import traceback
 
 from core.db.database import Database, init_db
 from core.services.project_service import ProjectService
@@ -32,6 +33,24 @@ def ensure_first_run_status_on(settings: SettingsService):
 
 def running_under_pytest() -> bool:
     return "PYTEST_CURRENT_TEST" in os.environ
+
+
+def _log_debug(db: Database, chat_id: str, info: str):
+    """
+    Write a debug line to debug_log table. Keep failures non-fatal.
+    """
+    try:
+        conn = db.connect()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO debug_log(chat_id, info, ts) VALUES (?, ?, ?)",
+            (chat_id, info, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        # never raise from logger
+        pass
 
 
 def main(argv=None):
@@ -150,6 +169,7 @@ def main(argv=None):
             distill_path = os.path.join(
                 os.path.dirname(__file__), "..", "runners", "distill.py"
             )
+            # spawn background job; keep quiet in normal runs but log failures
             subprocess.Popen(
                 [
                     "python3", distill_path,
@@ -158,10 +178,12 @@ def main(argv=None):
                     "--chat", chat_id,
                 ],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            tb = traceback.format_exc()
+            _log_debug(db, chat_id, f"distill spawn failed: {exc}\n{tb}")
 
     # DISABLE MENU UNDER PYTEST
     if running_under_pytest():

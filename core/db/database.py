@@ -25,9 +25,17 @@ CREATE TABLE IF NOT EXISTS messages (
   ts TEXT
 );
 
--- Distilled memory: one row per chat (PRIMARY KEY on chat_id)
 CREATE TABLE IF NOT EXISTS distilled (
-  chat_id TEXT PRIMARY KEY,
+  id INTEGER PRIMARY KEY,
+  project_name TEXT,
+  chat_id TEXT,
+  summary TEXT,
+  created_at TEXT
+);
+
+-- NEW: project-level distilled memory
+CREATE TABLE IF NOT EXISTS project_summaries (
+  id INTEGER PRIMARY KEY,
   project_name TEXT,
   summary TEXT,
   created_at TEXT
