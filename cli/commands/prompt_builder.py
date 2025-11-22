@@ -32,17 +32,25 @@ def build_prompt(args, db, project, chat_id, project_svc, chat_svc):
     parts.append(args.prompt)
 
     # -----------------------------
-    # BREVITY RULES
+    # RESPONSE BEHAVIOR RULES
     # -----------------------------
+    #
+    # These rules remove all restrictive behaviors that were causing:
+    # - placeholder responses
+    # - attempts to get confirmation before answering
+    # - overly concise / code-oriented replies
+    #
     parts.append(
         """
-### STYLE_GUIDE
-- Keep responses short, precise, and compact.
-- When writing code (only if explicitly requested), output complete runnable code.
-- Otherwise respond normally.
-- Expand fully code, configs, or command sequences.
-- When writing code, output complete runnable code.
-- Avoid long explanations; stay concise.
+### RESPONSE_STYLE_GUIDE
+- Provide the best possible direct answer to the user's request.
+- Do NOT ask clarifying questions unless the user explicitly asks for options.
+- Produce full, detailed, high-quality answers when the user expects real content.
+- Only produce code if the user explicitly requests code.
+- When code is requested, output full runnable code.
+- Avoid placeholders like “sources: to be filled”.
+- If the user requests articles, include actual sources (as text, not URLs if model cannot browse).
+- Do not be excessively concise; respond naturally according to user request.
 """
     )
 
@@ -74,3 +82,4 @@ def build_prompt(args, db, project, chat_id, project_svc, chat_svc):
             parts.append(f"[FILE_SELECTION_ERROR] {ex}")
 
     return "\n\n".join(parts)
+
