@@ -14,12 +14,12 @@ from core.services.settings_service import SettingsService
 from cli.commands.admin import handle_admin_commands
 from cli.commands.prompt_builder import build_prompt
 from cli.commands.banner import show_status_banner
-from cli.interactive.menu import interactive_entry   # ⭐ NEW
+from cli.interactive.menu import interactive_entry
 
 ROOT = os.path.expanduser("~/.llmcui")
 os.makedirs(ROOT, exist_ok=True)
-
 os.environ.setdefault("LLMCUI_ROOT", ROOT)
+
 DB_PATH = os.path.join(ROOT, "ai.db")
 
 
@@ -76,13 +76,13 @@ def main(argv=None):
     ensure_first_run_status_on(settings)
 
     # ------------------------------------------------------------
-    # ADMIN COMMANDS (delegated to admin.py)
+    # ADMIN COMMANDS
     # ------------------------------------------------------------
     if handle_admin_commands(args, db, project_svc, chat_svc):
         return 0
 
     # ------------------------------------------------------------
-    # INTERACTIVE MODE (no prompt + no admin flags)
+    # INTERACTIVE MODE
     # ------------------------------------------------------------
     if (
         not args.prompt
@@ -92,29 +92,39 @@ def main(argv=None):
         and not args.new_chat
         and not args.toggle_status
     ):
-        return interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings)
+        inter = interactive_entry(
+            db, project_svc, chat_svc, msg_svc, llm, settings
+        )
+
+        # If it's a dict → user selected project/chat + entered prompt
+        if isinstance(inter, dict):
+            args.project = inter["interactive_project"]
+            args.chat = inter["interactive_chat"]
+            args.prompt = inter["interactive_prompt"]
+        else:
+            return inter
 
     # ------------------------------------------------------------
-    # NORMAL LLM MODE REQUIRES PROMPT
+    # NORMAL MODE REQUIRES PROMPT
     # ------------------------------------------------------------
     if not args.prompt:
         parser.print_usage()
         return 1
 
-    # Resolve project and chat
+    # Resolve project & chat
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
-    # Generate title for new chats
+    # Generate title if new chat
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
         if title:
             chat_svc.update_title(chat_id, title)
 
-    # Build prompt using separated module
+    # Build final LLM prompt
     full_prompt = build_prompt(
         args=args,
         db=db,
@@ -130,7 +140,9 @@ def main(argv=None):
     # Show banner
     show_status_banner(settings, db, project, chat_id)
 
-    # LLM call
+    # ------------------------------------------------------------
+    # LLM CALL
+    # ------------------------------------------------------------
     start = time.time()
     response_text = llm.call_prompt(full_prompt)
     duration = time.time() - start
@@ -147,15 +159,16 @@ def main(argv=None):
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
 
+    # ------------------------------------------------------------
     # Background distillation
+    # ------------------------------------------------------------
     try:
         distill_path = os.path.join(
             os.path.dirname(__file__), "..", "runners", "distill.py"
         )
         subprocess.Popen(
             [
-                "python3",
-                distill_path,
+                "python3", distill_path,
                 "--db", DB_PATH,
                 "--project", project,
                 "--chat", chat_id,
