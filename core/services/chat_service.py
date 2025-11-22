@@ -59,6 +59,32 @@ class ChatService:
         conn.close()
         return chat_id
 
+    def force_new_chat(self, project_name):
+        """Explicitly create a brand new chat for a project."""
+        conn = self.db.connect()
+        cur = conn.cursor()
+
+        # ensure project exists
+        cur.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
+        p = cur.fetchone()
+        if not p:
+            return None
+        project_id = p[0]
+
+        # create a new chat
+        import uuid
+        chat_id = "chat-" + uuid.uuid4().hex[:8]
+        now = self._now()
+
+        cur.execute(
+            "INSERT INTO chats(id, project_id, title, created_at, last_used) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (chat_id, project_id, "(untitled)", now, now)
+        )
+        conn.commit()
+        conn.close()
+        return chat_id
+
     def reset_chat(self, chat_id):
         conn = self.db.connect()
         cur = conn.cursor()
