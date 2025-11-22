@@ -40,29 +40,28 @@ def main(argv=None):
         description="llmcui MVP wrapper for llm"
     )
 
-    # NORMAL USER FLAGS
+    # USER FLAGS
     parser.add_argument("-p", "--project", help="project name")
     parser.add_argument("-c", "--chat", help="chat id")
     parser.add_argument("-r", "--reset", action="store_true", help="reset chat")
     parser.add_argument("-f", "--filemode", action="store_true", help="file mode")
     parser.add_argument("--toggle-status", action="store_true", help="toggle banner")
 
-    # ADMIN FLAGS
+    # ADMIN
     parser.add_argument("--list-projects", action="store_true")
     parser.add_argument("--list-chats", action="store_true")
     parser.add_argument("--new-project")
     parser.add_argument("--new-chat", action="store_true")
 
-    # OPTIONAL PROMPT
+    # FREE PROMPT
     parser.add_argument("prompt", nargs="?", help="prompt")
     parser.add_argument("selector", nargs="?", help="file selector")
 
     args = parser.parse_args(argv)
 
-    # INIT
+    # INIT SERVICES
     init_db(DB_PATH)
     db = Database(DB_PATH)
-
     project_svc = ProjectService(db)
     chat_svc = ChatService(db)
     msg_svc = MessageService(db)
@@ -75,7 +74,7 @@ def main(argv=None):
     if handle_admin_commands(args, db, project_svc, chat_svc):
         return 0
 
-    # INTERACTIVE MODE
+    # INTERACTIVE ENTRY (no args)
     if (
         not args.prompt
         and not args.list_projects
@@ -94,98 +93,101 @@ def main(argv=None):
         else:
             return inter
 
-    # PROMPT REQUIRED
+    # NO PROMPT = ERROR
     if not args.prompt:
         parser.print_usage()
         return 1
 
-    # --- INITIAL RESOLUTION ---
+    # FIX PROJECT + CHAT
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
-    # --- PERSISTENT LOOP ---
-    current_project = project
-    current_chat = chat_id
-    next_prompt = args.prompt
+    # TITLE FOR NEW CHAT
+    if chat_svc.is_new_chat(chat_id):
+        t = llm.generate_title(args.prompt)
+        if t:
+            chat_svc.update_title(chat_id, t)
 
-    while True:
-        # Generate title if this is a new chat
-        if chat_svc.is_new_chat(current_chat):
-            title = llm.generate_title(next_prompt)
-            if title:
-                chat_svc.update_title(current_chat, title)
+    # BUILD PROMPT
+    full_prompt = build_prompt(
+        args=args,
+        db=db,
+        project=project,
+        chat_id=chat_id,
+        project_svc=project_svc,
+        chat_svc=chat_svc
+    )
 
-        # Build LLM prompt
-        full_prompt = build_prompt(
-            args=args,
-            db=db,
-            project=current_project,
-            chat_id=current_chat,
-            project_svc=project_svc,
-            chat_svc=chat_svc,
-        )
+    # SAVE USER MESSAGE
+    msg_svc.add_message(chat_id, "user", args.prompt)
 
-        # Save user message
-        msg_svc.add_message(current_chat, "user", next_prompt)
+    # SHOW BANNER
+    show_status_banner(settings, db, project, chat_id)
 
-        # Banner
-        show_status_banner(settings, db, current_project, current_chat)
+    # MODEL CALL
+    start = time.time()
+    response_text = llm.call_prompt(full_prompt)
+    latency = time.time() - start
 
-        # LLM CALL
-        start = time.time()
-        response_text = llm.call_prompt(full_prompt)
-        duration = time.time() - start
+    if response_text is None:
+        print("LLM call failed.")
+        return 1
 
-        if response_text is None:
-            print("LLM call failed.")
-            return 1
+    print(response_text)
+    print()
+    print(f"⏱️ Runtime (model call): {latency:.2f}s")
 
-        print(response_text)
-        print()
-        print(f"⏱️ Runtime (model call): {duration:.2f}s")
+    # SAVE RESPONSE
+    msg_svc.add_message(chat_id, "assistant", response_text)
+    chat_svc.append_archive(chat_id, args.prompt, response_text)
 
-        # Save assistant response
-        msg_svc.add_message(current_chat, "assistant", response_text)
-        chat_svc.append_archive(current_chat, next_prompt, response_text)
+    # BACKGROUND DISTILL
+    if not running_under_pytest():
+        try:
+            distill_path = os.path.join(
+                os.path.dirname(__file__), "..", "runners", "distill.py"
+            )
+            subprocess.Popen(
+                [
+                    "python3", distill_path,
+                    "--db", DB_PATH,
+                    "--project", project,
+                    "--chat", chat_id,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
 
-        # Background distillation
-        if not running_under_pytest():
-            try:
-                distill_path = os.path.join(
-                    os.path.dirname(__file__), "..", "runners", "distill.py"
-                )
-                subprocess.Popen(
-                    [
-                        "python3", distill_path,
-                        "--db", DB_PATH,
-                        "--project", current_project,
-                        "--chat", current_chat,
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass
+    # DISABLE MENU UNDER PYTEST
+    if running_under_pytest():
+        return 0
 
-        # POST-RESPONSE MENU (disabled under pytest)
-        if running_under_pytest():
-            return 0
+    # ✨ NEW: HANDLE POST-RESPONSE MENU RETURN VALUE
+    menu_result = post_response_menu(
+        db, project_svc, chat_svc, msg_svc, llm, settings,
+        current_project=project,
+        current_chat=chat_id
+    )
 
-        menu_result = post_response_menu(
-            db, project_svc, chat_svc, msg_svc, llm, settings,
-            current_project=current_project,
-            current_chat=current_chat,
-        )
+    # Case 1: exit
+    if menu_result == 0:
+        return 0
 
-        if menu_result is None:
-            # user chose exit
-            return 0
+    # Case 2: dict returned → re-run main() with updated arguments
+    if isinstance(menu_result, dict):
+        return main([
+            "-p", menu_result["interactive_project"],
+            "-c", menu_result["interactive_chat"],
+            menu_result["interactive_prompt"],
+        ])
 
-        # Unpack tuple: (new project, new chat, new prompt)
-        current_project, current_chat, next_prompt = menu_result
+    # Should not reach here
+    return 0
 
 
 if __name__ == "__main__":
