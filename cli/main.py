@@ -14,6 +14,7 @@ from core.services.settings_service import SettingsService
 from cli.commands.admin import handle_admin_commands
 from cli.commands.prompt_builder import build_prompt
 from cli.commands.banner import show_status_banner
+from cli.interactive.menu import interactive_entry   # ⭐ NEW
 
 ROOT = os.path.expanduser("~/.llmcui")
 os.makedirs(ROOT, exist_ok=True)
@@ -23,7 +24,7 @@ DB_PATH = os.path.join(ROOT, "ai.db")
 
 
 def ensure_first_run_status_on(settings: SettingsService):
-    """Set show_status=ON on first run."""
+    """Enable show_status=ON for first-time users."""
     if settings.get("show_status") is None:
         settings.set("show_status", "true")
 
@@ -34,27 +35,35 @@ def main(argv=None):
         description="llmcui MVP wrapper for llm"
     )
 
-    # Normal arguments
+    # ------------------------------------------------------------
+    # NORMAL USER FLAGS
+    # ------------------------------------------------------------
     parser.add_argument("-p", "--project", help="project name")
     parser.add_argument("-c", "--chat", help="chat id")
     parser.add_argument("-r", "--reset", action="store_true", help="reset chat")
-    parser.add_argument("-f", "--filemode", action="store_true", help="include files")
+    parser.add_argument("-f", "--filemode", action="store_true", help="file mode")
     parser.add_argument("--toggle-status", action="store_true",
-                        help="toggle project/chat banner")
+                        help="toggle banner")
 
-    # Admin arguments (delegated to admin.py)
+    # ------------------------------------------------------------
+    # ADMIN FLAGS
+    # ------------------------------------------------------------
     parser.add_argument("--list-projects", action="store_true")
     parser.add_argument("--list-chats", action="store_true")
     parser.add_argument("--new-project")
     parser.add_argument("--new-chat", action="store_true")
 
-    # Prompt
-    parser.add_argument("prompt", nargs="?", help="prompt text")
-    parser.add_argument("selector", nargs="?", help="file selector like 0-2")
+    # ------------------------------------------------------------
+    # MAIN PROMPT (optional)
+    # ------------------------------------------------------------
+    parser.add_argument("prompt", nargs="?", help="prompt")
+    parser.add_argument("selector", nargs="?", help="file selector")
 
     args = parser.parse_args(argv)
 
-    # DB init
+    # ------------------------------------------------------------
+    # INITIALIZE DB + SERVICES
+    # ------------------------------------------------------------
     init_db(DB_PATH)
     db = Database(DB_PATH)
 
@@ -66,34 +75,46 @@ def main(argv=None):
 
     ensure_first_run_status_on(settings)
 
-    # -------------------------------------------------
-    # Handle admin commands (cleanly separated)
-    # -------------------------------------------------
+    # ------------------------------------------------------------
+    # ADMIN COMMANDS (delegated to admin.py)
+    # ------------------------------------------------------------
     if handle_admin_commands(args, db, project_svc, chat_svc):
         return 0
 
-    # Prompt required beyond this point
+    # ------------------------------------------------------------
+    # INTERACTIVE MODE (no prompt + no admin flags)
+    # ------------------------------------------------------------
+    if (
+        not args.prompt
+        and not args.list_projects
+        and not args.list_chats
+        and not args.new_project
+        and not args.new_chat
+        and not args.toggle_status
+    ):
+        return interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings)
+
+    # ------------------------------------------------------------
+    # NORMAL LLM MODE REQUIRES PROMPT
+    # ------------------------------------------------------------
     if not args.prompt:
         parser.print_usage()
         return 1
 
-    # Resolve project & chat
+    # Resolve project and chat
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
-    # Reset clears content but keeps metadata
     if args.reset:
         chat_svc.reset_chat(chat_id)
 
-    # Auto-title for new chat
+    # Generate title for new chats
     if chat_svc.is_new_chat(chat_id):
         title = llm.generate_title(args.prompt)
         if title:
             chat_svc.update_title(chat_id, title)
 
-    # -------------------------------------------------
-    # Prompt building refactored to prompt_builder.py
-    # -------------------------------------------------
+    # Build prompt using separated module
     full_prompt = build_prompt(
         args=args,
         db=db,
@@ -106,14 +127,10 @@ def main(argv=None):
     # Save user message
     msg_svc.add_message(chat_id, "user", args.prompt)
 
-    # -------------------------------------------------
-    # Status banner (refactored to banner.py)
-    # -------------------------------------------------
+    # Show banner
     show_status_banner(settings, db, project, chat_id)
 
-    # -------------------------------------------------
-    # LLM CALL
-    # -------------------------------------------------
+    # LLM call
     start = time.time()
     response_text = llm.call_prompt(full_prompt)
     duration = time.time() - start
@@ -126,22 +143,25 @@ def main(argv=None):
     print()
     print(f"⏱️ Runtime (model call): {duration:.2f}s")
 
-    # Save assistant message
+    # Save assistant response
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
 
-    # -------------------------------------------------
     # Background distillation
-    # -------------------------------------------------
     try:
         distill_path = os.path.join(
             os.path.dirname(__file__), "..", "runners", "distill.py"
         )
         subprocess.Popen(
-            ["python3", distill_path, "--db", DB_PATH,
-             "--project", project, "--chat", chat_id],
+            [
+                "python3",
+                distill_path,
+                "--db", DB_PATH,
+                "--project", project,
+                "--chat", chat_id,
+            ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
         )
     except Exception:
         pass
