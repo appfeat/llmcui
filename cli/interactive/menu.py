@@ -5,25 +5,21 @@ import time
 from core.services.project_service import ProjectService
 from core.services.chat_service import ChatService
 from core.services.message_service import MessageService
-from core.services.llm_service import LLMService
-from core.services.settings_service import SettingsService
 
 
 # -----------------------------------------------------------
-# Utility: safe input
+# Utility: safe input wrapper
 # -----------------------------------------------------------
 def ask(prompt: str) -> str:
     try:
         return input(prompt).strip()
-    except EOFError:
-        return ""
-    except KeyboardInterrupt:
-        print("\nInterrupted.")
+    except (EOFError, KeyboardInterrupt):
+        print("")
         return ""
 
 
 # -----------------------------------------------------------
-# PROJECT SELECTION MENU
+# PROJECT SELECTION
 # -----------------------------------------------------------
 def select_project(db, project_svc: ProjectService) -> str:
     conn = db.connect()
@@ -41,26 +37,31 @@ def select_project(db, project_svc: ProjectService) -> str:
         print(f"{i}. {r['name']}   (created {r['created_at']})")
 
     print("n. Create new project")
-    print("x. Cancel and exit")
+    print("x. Cancel")
 
     while True:
-        sel = ask("\nSelect project: ")
-        if sel.lower() == "x":
+        sel = ask("\nSelect project: ").lower()
+
+        if sel == "x":
             return None
-        if sel.lower() == "n":
+
+        if sel == "n":
             name = ask("New project name: ").strip()
             if name:
                 return project_svc.get_or_create(name)
+            print("Invalid name.")
             continue
+
         if sel.isdigit():
             idx = int(sel)
             if 0 <= idx < len(rows):
                 return rows[idx]["name"]
+
         print("Invalid choice.")
 
 
 # -----------------------------------------------------------
-# CHAT SELECTION MENU
+# CHAT SELECTION
 # -----------------------------------------------------------
 def select_chat(db, chat_svc: ChatService, project: str) -> str:
     conn = db.connect()
@@ -79,7 +80,7 @@ def select_chat(db, chat_svc: ChatService, project: str) -> str:
     print(f"\n=== Chats in '{project}' ===")
 
     if not rows:
-        print("No chats. Creating one.")
+        print("No chats found. Creating first chat.")
         return chat_svc.force_new_chat(project)
 
     for i, r in enumerate(rows):
@@ -87,18 +88,22 @@ def select_chat(db, chat_svc: ChatService, project: str) -> str:
         print(f"{i}. {title}   [{r['id']}]   last used: {r['last_used']}")
 
     print("n. Create new chat")
-    print("x. Cancel and exit")
+    print("x. Cancel")
 
     while True:
-        sel = ask("\nSelect chat: ")
-        if sel.lower() == "x":
+        sel = ask("\nSelect chat: ").lower()
+
+        if sel == "x":
             return None
-        if sel.lower() == "n":
+
+        if sel == "n":
             return chat_svc.force_new_chat(project)
+
         if sel.isdigit():
             idx = int(sel)
             if 0 <= idx < len(rows):
                 return rows[idx]["id"]
+
         print("Invalid choice.")
 
 
@@ -127,7 +132,7 @@ def show_chat_history(msg_svc: MessageService, chat_id: str):
 # -----------------------------------------------------------
 def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
     print("========================================")
-    print("         llmcui interactive mode         ")
+    print("         llmcui interactive mode        ")
     print("========================================")
     print("Actions:")
     print("  0 → Start a new project")
@@ -137,24 +142,25 @@ def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
     print("========================================")
 
     while True:
-        choice = ask("Choose option: ")
+        choice = ask("Choose option: ").lower()
 
         # Exit
-        if choice.lower() == "x":
+        if choice == "x":
             return 0
 
         # ----------------------------------------
-        # NEW PROJECT
+        # CREATE NEW PROJECT
         # ----------------------------------------
         if choice == "0":
             name = ask("Enter new project name: ").strip()
             if not name:
                 print("Invalid name.")
                 continue
+
             project = project_svc.get_or_create(name)
             chat_id = chat_svc.force_new_chat(project)
-
             prompt = ask("Enter prompt: ")
+
             return _return_interactive_choice(project, chat_id, prompt)
 
         # ----------------------------------------
@@ -170,23 +176,24 @@ def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
                 continue
 
             show_chat_history(msg_svc, chat)
+
             print("\nOptions:")
             print("  c → Continue this chat")
             print("  p → Pick a different project")
             print("  x → Exit")
 
             while True:
-                inner = ask("\nChoose: ")
+                inner = ask("\nChoose: ").lower()
 
-                if inner.lower() == "x":
+                if inner == "x":
                     return 0
-                if inner.lower() == "p":
-                    break
-                if inner.lower() == "c":
+                if inner == "p":
+                    break       # go back to main menu
+                if inner == "c":
                     prompt = ask("Your message: ")
                     return _return_interactive_choice(project, chat, prompt)
 
-                print("Invalid.")
+                print("Invalid choice.")
 
         # ----------------------------------------
         # DEFAULT PROJECT
@@ -194,22 +201,19 @@ def interactive_entry(db, project_svc, chat_svc, msg_svc, llm, settings):
         if choice == "2":
             project = project_svc.get_or_create_default()
             chat = chat_svc.get_or_create_first(project)
-            show_chat_history(msg_svc, chat)
 
+            show_chat_history(msg_svc, chat)
             prompt = ask("Your message: ")
+
             return _return_interactive_choice(project, chat, prompt)
 
         print("Invalid choice. Try again.")
 
 
 # -----------------------------------------------------------
-# Helper to return back into main.py normal flow
+# Return interactive choice back to main.py
 # -----------------------------------------------------------
 def _return_interactive_choice(project: str, chat_id: str, prompt: str):
-    """
-    Returns a tuple that main.py can detect and use in place of argparse.
-    interactive_entry() will return this to main() instead of 0.
-    """
     return {
         "interactive_project": project,
         "interactive_chat": chat_id,
