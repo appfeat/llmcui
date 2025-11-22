@@ -38,7 +38,9 @@ def build_prompt(args, db, project, chat_id, project_svc, chat_svc):
         """
 ### STYLE_GUIDE
 - Keep responses short, precise, and compact.
-- Expand fully only for code, configs, or command sequences.
+- When writing code (only if explicitly requested), output complete runnable code.
+- Otherwise respond normally.
+- Expand fully code, configs, or command sequences.
 - When writing code, output complete runnable code.
 - Avoid long explanations; stay concise.
 """
