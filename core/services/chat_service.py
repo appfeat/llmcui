@@ -1,4 +1,3 @@
-# core/services/chat_service.py
 from datetime import datetime, UTC
 import uuid
 from core.db.database import Database
@@ -87,7 +86,7 @@ class ChatService:
         return
 
     def get_messages(self, chat_id):
-        """Return all messages for a given chat in chronological order."""
+        """Return all messages in chronological order."""
         conn = self.db.connect()
         cur = conn.execute(
             "SELECT role, content, ts FROM messages "
@@ -97,3 +96,29 @@ class ChatService:
         rows = cur.fetchall()
         conn.close()
         return rows
+
+    # ---------------------------------------------------------
+    # STEP 3: NEW CHAT TITLE LOGIC
+    # ---------------------------------------------------------
+
+    def is_new_chat(self, chat_id) -> bool:
+        """Return True if chat has zero messages."""
+        conn = self.db.connect()
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE chat_id = ?",
+            (chat_id,)
+        )
+        count = cur.fetchone()[0]
+        conn.close()
+        return count == 0
+
+    def update_title(self, chat_id, title: str):
+        """Update the chat's title."""
+        conn = self.db.connect()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE chats SET title = ?, last_used = ? WHERE id = ?",
+            (title, self._now(), chat_id)
+        )
+        conn.commit()
+        conn.close()

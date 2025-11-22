@@ -1,4 +1,4 @@
-# cli/main.py
+#!/usr/bin/env python3
 import argparse
 import os
 import subprocess
@@ -33,7 +33,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     # --------------------------------------------
-    # Toggle status header flag
+    # Toggle status header
     # --------------------------------------------
     if args.toggle_status:
         init_db(DB_PATH)
@@ -43,7 +43,7 @@ def main(argv=None):
         print(f"Status header now {'ON' if new_value else 'OFF'}")
         return 0
 
-    # No prompt → show usage
+    # No prompt → help
     if not args.prompt:
         parser.print_usage()
         return 1
@@ -65,8 +65,17 @@ def main(argv=None):
     project = args.project or project_svc.get_or_create_default()
     chat_id = args.chat or chat_svc.get_or_create_first(project)
 
+    # Reset BEFORE checking whether chat is new
     if args.reset:
         chat_svc.reset_chat(chat_id)
+
+    # --------------------------------------------
+    # NEW CHAT TITLE LOGIC (Step 4)
+    # --------------------------------------------
+    if chat_svc.is_new_chat(chat_id):
+        title = llm.generate_title(args.prompt)
+        if title:
+            chat_svc.update_title(chat_id, title)
 
     # --------------------------------------------
     # Context summaries
@@ -89,7 +98,6 @@ def main(argv=None):
     if args.filemode and args.selector:
         try:
             sel = args.selector
-            files = []
 
             if "-" in sel:
                 start_idx, end_idx = sel.split("-", 1)
@@ -116,7 +124,7 @@ def main(argv=None):
     msg_svc.add_message(chat_id, "user", args.prompt)
 
     # --------------------------------------------
-    # Status banner (project + chat)
+    # Status banner
     # --------------------------------------------
     if settings.get_bool("show_status", False):
         print(f"[project: {project} | chat: {chat_id}]")
@@ -138,7 +146,7 @@ def main(argv=None):
     print(f"⏱️ Runtime (model call): {duration:.2f}s")
 
     # --------------------------------------------
-    # Persist response + archive
+    # Persist assistant message
     # --------------------------------------------
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
