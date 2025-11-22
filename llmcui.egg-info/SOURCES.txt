@@ -18,4 +18,5 @@ tests/test_database.py
 tests/test_interactive_menu.py
 tests/test_llm_service.py
 tests/test_message_service.py
+tests/test_post_response.py
 tests/test_project_service.py

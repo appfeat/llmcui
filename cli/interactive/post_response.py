@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import cli.interactive.menu as M
 
@@ -14,6 +15,13 @@ def post_response_menu(
 ):
     """
     Menu shown AFTER an LLM response.
+
+    Returns ONLY:
+      • 0 — exit
+      • dict with keys:
+            interactive_project
+            interactive_chat
+            interactive_prompt
     """
 
     while True:
@@ -33,11 +41,7 @@ def post_response_menu(
         # ASK ANOTHER QUESTION
         if choice == "a":
             prompt = M.ask("Your message: ")
-            return rerun_llm(
-                current_project,
-                current_chat,
-                prompt,
-            )
+            return rerun_llm(current_project, current_chat, prompt)
 
         # PIPE A FILE + QUESTION
         if choice == "f":
@@ -52,11 +56,7 @@ def post_response_menu(
             question = M.ask("Your question about this file: ")
             combined = f"### FILE: {path}\n{content}\n\n{question}"
 
-            return rerun_llm(
-                current_project,
-                current_chat,
-                combined,
-            )
+            return rerun_llm(current_project, current_chat, combined)
 
         # SWITCH CHAT
         if choice == "c":
@@ -64,11 +64,7 @@ def post_response_menu(
             if chat:
                 M.show_chat_history(msg_svc, chat)
                 prompt = M.ask("Your message: ")
-                return rerun_llm(
-                    current_project,
-                    chat,
-                    prompt,
-                )
+                return rerun_llm(current_project, chat, prompt)
             continue
 
         # SWITCH PROJECT + CHAT
@@ -79,20 +75,14 @@ def post_response_menu(
                 if chat:
                     M.show_chat_history(msg_svc, chat)
                     prompt = M.ask("Your message: ")
-                    return rerun_llm(
-                        proj,
-                        chat,
-                        prompt,
-                    )
+                    return rerun_llm(proj, chat, prompt)
             continue
 
         print("Invalid choice.")
 
 
 def rerun_llm(project, chat_id, prompt):
-    """
-    Returns a dict understood by main.py for re-running the LLM.
-    """
+    """Return dict matching test expectations."""
     return {
         "interactive_project": project,
         "interactive_chat": chat_id,
