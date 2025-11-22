@@ -15,6 +15,7 @@ from cli.commands.admin import handle_admin_commands
 from cli.commands.prompt_builder import build_prompt
 from cli.commands.banner import show_status_banner
 from cli.interactive.menu import interactive_entry
+from cli.interactive.post_response import post_response_menu
 
 
 ROOT = os.path.expanduser("~/.llmcui")
@@ -31,7 +32,7 @@ def ensure_first_run_status_on(settings: SettingsService):
 
 
 def running_under_pytest() -> bool:
-    """Detect pytest to avoid background Popen warnings."""
+    """Detect pytest to avoid background Popen warnings & interactive menus."""
     return "PYTEST_CURRENT_TEST" in os.environ
 
 
@@ -147,7 +148,7 @@ def main(argv=None):
     msg_svc.add_message(chat_id, "assistant", response_text)
     chat_svc.append_archive(chat_id, args.prompt, response_text)
 
-    # BACKGROUND DISTILLATION (DISABLED DURING TESTS)
+    # BACKGROUND DISTILLATION SKIPPED DURING TESTS
     if not running_under_pytest():
         try:
             distill_path = os.path.join(
@@ -166,7 +167,16 @@ def main(argv=None):
         except Exception:
             pass
 
-    return 0
+    # POST-RESPONSE MENU DISABLED UNDER PYTEST
+    if running_under_pytest():
+        return 0
+
+    # POST-RESPONSE MENU LOOP
+    return post_response_menu(
+        db, project_svc, chat_svc, msg_svc, llm, settings,
+        current_project=project,
+        current_chat=chat_id
+    )
 
 
 if __name__ == "__main__":
