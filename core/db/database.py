@@ -25,10 +25,10 @@ CREATE TABLE IF NOT EXISTS messages (
   ts TEXT
 );
 
+-- Distilled memory: one row per chat (PRIMARY KEY on chat_id)
 CREATE TABLE IF NOT EXISTS distilled (
-  id INTEGER PRIMARY KEY,
+  chat_id TEXT PRIMARY KEY,
   project_name TEXT,
-  chat_id TEXT,
   summary TEXT,
   created_at TEXT
 );
@@ -50,7 +50,7 @@ def init_db(db_path):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     conn = sqlite3.connect(db_path)
-    conn.executescript(SCHEMA)   # ← ALWAYS apply schema
+    conn.executescript(SCHEMA)
     conn.commit()
     conn.close()
 
